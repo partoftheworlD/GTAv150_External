@@ -24,10 +24,10 @@ class CMemory : CSignatures {
 				0x80, 0x80, 0x80, 0x80
 				};
 
-		int m_moneyValue  = 300000;
-		int m_resetMoney  = -1;
-		int m_wantedLevel = 0;
-		int m_ieCooldown  = 0;
+		int m_moneyValue = 300000;
+		int m_resetMoney = -1;
+		int m_ieCooldown = 0;
+		int m_iAmmo      = 9999;
 
 		/**
 		 * \brief Inputs array
@@ -52,7 +52,7 @@ class CMemory : CSignatures {
 		 * \param index Index specified in game scripts as Global_XXXX
 		 * \return Returns the address relative to the specified index
 		 */
-		DWORD64 m_getHiddenStruct(DWORD64 index) const;
+		inline DWORD64 m_getHiddenStruct(DWORD64 index);
 
 		static bool m_dataCompare(BYTE* data, BYTE* sign, char* mask);
 
@@ -118,12 +118,12 @@ class CMemory : CSignatures {
 		/**
 		 * \brief Function that resets timers, such as import/export, mechanic call
 		 */
-		void m_tunables() const;
+		void m_tunables();
 
 		/**
 		 * \brief Unlocks many things from past events
 		 */
-		void m_unlocker() const;
+		inline void m_unlocker();
 
 		/**
 		 * \brief Ammo for Opressor MK2 and recharge boost

@@ -2,7 +2,7 @@
 
 DWORD64 GLOBAL_STRUCT = 0;
 
-DWORD64 CMemory::m_getHiddenStruct(const DWORD64 index) const {
+DWORD64 CMemory::m_getHiddenStruct(const DWORD64 index) {
 	DWORD64 newGlobalPageBase = 0;
 
 	ReadProcessMemory(m_hProcess, reinterpret_cast<PBYTE*>(GLOBAL_STRUCT + ((index >> 18 & 0x3F) << 3)), &newGlobalPageBase, sizeof newGlobalPageBase, nullptr);
@@ -16,9 +16,12 @@ void CMemory::m_updateSignatures() {
 	auto basePtr  = 0;
 	auto worldPtr = 0;
 
-	const auto worldPtrAddr   = m_findSignature<DWORD64>(m_hProcess, reinterpret_cast<DWORD64>(m_mi.lpBaseOfDll), static_cast<DWORD>(m_mi.SizeOfImage), reinterpret_cast<BYTE*>(this->m_worldPtrSign), this->m_worldPtrMask) + 3;
-	const auto arrayOfStructs = m_findSignature<DWORD64>(m_hProcess, reinterpret_cast<DWORD64>(m_mi.lpBaseOfDll), static_cast<DWORD>(m_mi.SizeOfImage), reinterpret_cast<BYTE*>(this->m_globalArraySign), this->m_globalArrayMask) + 7;
-	const auto blip           = m_findSignature<DWORD64>(m_hProcess, reinterpret_cast<DWORD64>(m_mi.lpBaseOfDll), static_cast<DWORD>(m_mi.SizeOfImage), reinterpret_cast<BYTE*>(this->m_blipSign), this->m_blipMask) + 3;
+	const auto worldPtrAddr = m_findSignature<DWORD64>(m_hProcess, reinterpret_cast<DWORD64>(m_mi.lpBaseOfDll), static_cast<DWORD>(m_mi.SizeOfImage),
+													   reinterpret_cast<BYTE*>(this->m_worldPtrSign), this->m_worldPtrMask) + 3;
+	const auto arrayOfStructs = m_findSignature<DWORD64>(m_hProcess, reinterpret_cast<DWORD64>(m_mi.lpBaseOfDll), static_cast<DWORD>(m_mi.SizeOfImage),
+														 reinterpret_cast<BYTE*>(this->m_globalArraySign), this->m_globalArrayMask) + 7;
+	const auto blip = m_findSignature<DWORD64>(m_hProcess, reinterpret_cast<DWORD64>(m_mi.lpBaseOfDll), static_cast<DWORD>(m_mi.SizeOfImage),
+											   reinterpret_cast<BYTE*>(this->m_blipSign), this->m_blipMask) + 3;
 	if (worldPtrAddr) {
 		ReadProcessMemory(m_hProcess, reinterpret_cast<PBYTE*>(worldPtrAddr), &worldPtr, sizeof(DWORD64), nullptr);
 		printf("-> CWorldAddr 0x%llX Delta bytes 0x%X\n", worldPtrAddr - 3, worldPtr);
@@ -66,9 +69,11 @@ int CMemory::m_getProcessByName(const DWORD pId, char* processName) {
 	if (this->m_hProcess && K32EnumProcessModules(this->m_hProcess, &this->m_hMod, sizeof this->m_hMod, &m_needed)) {
 		K32GetModuleBaseNameA(this->m_hProcess, this->m_hMod, m_processName, sizeof m_processName / sizeof(char));
 	}
-	if (this->m_hProcess && !strcmp(m_processName, processName) && K32EnumProcessModules(this->m_hProcess, this->m_modulesList, sizeof this->m_modulesList, &this->m_neededMods)) {
+	if (this->m_hProcess && !strcmp(m_processName, processName) && K32EnumProcessModules(this->m_hProcess, this->m_modulesList, sizeof this->m_modulesList,
+																						 &this->m_neededMods)) {
 		for (unsigned int i = 0; i < this->m_neededMods / sizeof(HMODULE); ++i) {
-			if (this->m_hProcess && K32GetModuleBaseNameA(this->m_hProcess, this->m_modulesList[i], this->m_moduleName, sizeof this->m_moduleName / sizeof DWORD64) && !strcmp(this->m_moduleName, processName)) {
+			if (this->m_hProcess && K32GetModuleBaseNameA(this->m_hProcess, this->m_modulesList[i], this->m_moduleName,
+														  sizeof this->m_moduleName / sizeof DWORD64) && !strcmp(this->m_moduleName, processName)) {
 				K32GetModuleInformation(this->m_hProcess, this->m_modulesList[i], &this->m_mi, sizeof(MODULEINFO));
 				printf("Module: %s BaseAddress:0x%p Size:0x%lX\n", this->m_moduleName, this->m_mi.lpBaseOfDll, this->m_mi.SizeOfImage);
 				this->m_updateSignatures();
@@ -146,9 +151,27 @@ type CMemory::m_findSignature(const HANDLE hProcess, type base, const DWORD size
 	return 0;
 }
 
-void CMemory::m_tunables() const {
-	auto value = 1234123123;
+void CMemory::m_tunables() {
+	std::vector<DWORD> ammo_ptr    = {0x20, 0x60, 0x8, 0x0};
+	auto               value       = 1234123123;
+	auto               localPlayer = reinterpret_cast<CLocalPlayer*>(this->m_player);
+	auto               pInventory  = this->m_readMemory<DWORD64, CPedInventory*>(m_hProcess, reinterpret_cast<DWORD64>(&localPlayer->m_pedInventory));
 	while (TRUE) {
+
+		// Ammo Box (regular)
+		auto Weapons = this->m_readMemory<DWORD64, CPedWeaponManager*>(m_hProcess, reinterpret_cast<DWORD64>(&pInventory->m_pWeaponManager));
+		auto pAmmo   = reinterpret_cast<CAmmo*>(this->m_readMemory<DWORD64, DWORD>(m_hProcess, reinterpret_cast<DWORD64>(&Weapons), ammo_ptr));
+		this->m_writeMemory<DWORD64, int>(m_hProcess, reinterpret_cast<DWORD64>(&pAmmo->m_currentAmmo), m_iAmmo);
+
+		// MK2
+		auto MKWeapons = this->m_readMemory<DWORD64, CMkInventory*>(m_hProcess, reinterpret_cast<DWORD64>(&pInventory->m_pMkInventory));
+		for (auto i = 0; i < 20; i++) {
+			auto mkAmmo = this->m_readMemory<DWORD64>(m_hProcess, reinterpret_cast<DWORD64>(MKWeapons) + i * 8);
+			if (mkAmmo != -1) {
+				this->m_writeMemory<DWORD64, int>(m_hProcess, reinterpret_cast<DWORD64>(&reinterpret_cast<CMkAmmo*>(mkAmmo)->m_iAmmo), m_iAmmo);
+			}
+
+		}
 		// Anti-afk
 		this->m_writeMemory(m_hProcess, this->m_getHiddenStruct(0x40001 + 0x57), &value);
 		// I/E cooldown
@@ -161,17 +184,13 @@ void CMemory::m_tunables() const {
 	}
 }
 
-void CMemory::m_unlocker() const {
+void CMemory::m_unlocker() {
 	std::vector<DWORD> offsets = {
-			0x1FB2, 0x1FB3, 0x1FB4, 0x1FB5, 0x1FB6, 0x1FB7, 0x1FB8, 0x1FB9, 0x1FBA, 0x1FBB, 0x1FBC,
-			0x1FBD, 0x1FBE, 0x1FC0, 0x1FC7, 0x1FC8, 0x1FC9, 0x2210, 0x2316, 0x2317, 0x2318, 0x3035,
-			0x3036, 0x3037, 0x3038, 0x5967, 0x5968, 0x5969, 0x596A, 0x596B, 0x596C, 0x596D, 0x596E,
-			0x596F, 0x5981, 0x5982, 0x5983, 0x5984, 0x5C83, 0x6150, 0x6193, 0x6194, 0x6195, 0x6197,
-			0x6198, 0x6199, 0x619A, 0x699D, 0x699E, 0x699F, 0x6B42, 0x6B45, 0x6B46, 0x6B47, 0x6B48,
-			0x6B49, 0x6B4A, 0x6B4B, 0x6B4C, 0x6B4D, 0x6B4E, 0x6B4F, 0x6B50, 0x6B51, 0x6B52, 0x6B53,
-			0x6B54, 0x6B55, 0x6B56, 0x6B57, 0x6B58, 0x6C65, 0x6C68, 0x6C69, 0x6C6A, 0x6C6B, 0x6C6E,
-			0x6C6F, 0x6C70, 0x6C71, 0x6C76, 0x6C8F, 0x6C92, 0x6C97, 0x6C99, 0x6CB0, 0x6CB1, 0x6CB2,
-			0x6CB3, 0x6CB4
+			0x1FB2, 0x1FB3, 0x1FB4, 0x1FB5, 0x1FB6, 0x1FB7, 0x1FB8, 0x1FB9, 0x1FBA, 0x1FBB, 0x1FBC, 0x1FBD, 0x1FBE, 0x1FC0, 0x1FC7, 0x1FC8, 0x1FC9, 0x2210,
+			0x2316, 0x2317, 0x2318, 0x3035, 0x3036, 0x3037, 0x3038, 0x5967, 0x5968, 0x5969, 0x596A, 0x596B, 0x596C, 0x596D, 0x596E, 0x596F, 0x5981, 0x5982,
+			0x5983, 0x5984, 0x5C83, 0x6150, 0x6193, 0x6194, 0x6195, 0x6197, 0x6198, 0x6199, 0x619A, 0x699D, 0x699E, 0x699F, 0x6B42, 0x6B45, 0x6B46, 0x6B47,
+			0x6B48, 0x6B49, 0x6B4A, 0x6B4B, 0x6B4C, 0x6B4D, 0x6B4E, 0x6B4F, 0x6B50, 0x6B51, 0x6B52, 0x6B53, 0x6B54, 0x6B55, 0x6B56, 0x6B57, 0x6B58, 0x6C65,
+			0x6C68, 0x6C69, 0x6C6A, 0x6C6B, 0x6C6E, 0x6C6F, 0x6C70, 0x6C71, 0x6C76, 0x6C8F, 0x6C92, 0x6C97, 0x6C99, 0x6CB0, 0x6CB1, 0x6CB2, 0x6CB3, 0x6CB4
 			};
 	for (auto i : offsets) {
 		this->m_writeMemory<DWORD64, bool>(m_hProcess, this->m_getHiddenStruct(static_cast<DWORD64>(0x40001) + i), true);
@@ -183,12 +202,12 @@ void CMemory::m_opressorAmmo() {
 	const auto boost = 3.f;
 	while (TRUE) {
 		auto* const pPlayer  = reinterpret_cast<CLocalPlayer*>(this->m_player);
-		auto* const pVehicle = this->m_readMemory<DWORD64, CVehicle*>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayer->Current_Vehicle));
-		auto* const pVehSpec = this->m_readMemory<DWORD64, CVehicleType*>(m_hProcess, reinterpret_cast<DWORD64>(&pVehicle->pCVehicleType));
+		auto* const pVehicle = this->m_readMemory<DWORD64, CVehicle*>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayer->m_currentVehicle));
+		auto* const pVehSpec = this->m_readMemory<DWORD64, CVehicleType*>(m_hProcess, reinterpret_cast<DWORD64>(&pVehicle->m_pCVehicleType));
 
 		if (pVehicle) {
-			this->m_writeMemory<DWORD64, int>(m_hProcess, reinterpret_cast<DWORD64>(&pVehSpec->iVehicleAmmo), ammo);
-			this->m_writeMemory<DWORD64, int>(m_hProcess, reinterpret_cast<DWORD64>(&pVehSpec->iVehicleSave), ammo);
+			this->m_writeMemory<DWORD64, int>(m_hProcess, reinterpret_cast<DWORD64>(&pVehSpec->m_iVehicleAmmo), ammo);
+			this->m_writeMemory<DWORD64, int>(m_hProcess, reinterpret_cast<DWORD64>(&pVehSpec->m_iVehicleSave), ammo);
 			this->m_writeMemory<DWORD64, float>(m_hProcess, reinterpret_cast<DWORD64>(&pVehSpec->m_fBoostCharge), boost);
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -230,19 +249,19 @@ void CMemory::m_orbitalMoney() {
 }
 
 void CMemory::m_teleportPlayer() {
-	Vector3 blip;
+	CVector3 blip{};
 	while (TRUE) {
 		const auto teleportPlayerState = GetKeyState(VK_F3) & 0x8000;
 		if (teleportPlayerState) {
 			auto* const pPlayer       = reinterpret_cast<CLocalPlayer*>(this->m_player);
-			auto* const pPlayerCoords = this->m_readMemory<DWORD64, CCphInstGta*>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayer->pCphInstGta));
+			auto* const pPlayerCoords = this->m_readMemory<DWORD64, CCphInstGta*>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayer->m_pCphInstGta));
 			auto* const Blip          = reinterpret_cast<CBlip*>(this->m_cBlip);
 			blip.x                    = this->m_readMemory<DWORD64, float>(m_hProcess, reinterpret_cast<DWORD64>(&Blip->X));
 			blip.y                    = this->m_readMemory<DWORD64, float>(m_hProcess, reinterpret_cast<DWORD64>(&Blip->Y));
 			blip.z                    = -5000.f;
 
 			if (blip.x != 64000.000 && blip.y != 64000.000) {
-				this->m_writeMemory<DWORD64, Vector3>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayerCoords->m_vecCoords), blip);
+				this->m_writeMemory<DWORD64, CVector3>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayerCoords->m_vecCoords), blip);
 			}
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -250,13 +269,13 @@ void CMemory::m_teleportPlayer() {
 }
 
 void CMemory::m_teleportVehicle() {
-	Vector3 blip;
+	CVector3 blip{};
 	while (TRUE) {
 		const auto teleportVehState = GetKeyState(VK_PAUSE) & 0x8000;
 		if (teleportVehState) {
 			auto* const pPlayer     = reinterpret_cast<CLocalPlayer*>(this->m_player);
-			auto* const pVehicle    = this->m_readMemory<DWORD64, CVehicle*>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayer->Current_Vehicle));
-			auto* const pNavigation = this->m_readMemory<DWORD64, CNavigation*>(m_hProcess, reinterpret_cast<DWORD64>(&pVehicle->pCNavigation));
+			auto* const pVehicle    = this->m_readMemory<DWORD64, CVehicle*>(m_hProcess, reinterpret_cast<DWORD64>(&pPlayer->m_currentVehicle));
+			auto* const pNavigation = this->m_readMemory<DWORD64, CNavigation*>(m_hProcess, reinterpret_cast<DWORD64>(&pVehicle->m_pCNavigation));
 			auto* const Blip        = reinterpret_cast<CBlip*>(this->m_cBlip);
 
 			blip.x = this->m_readMemory<DWORD64, float>(m_hProcess, reinterpret_cast<DWORD64>(&Blip->X));
@@ -264,7 +283,7 @@ void CMemory::m_teleportVehicle() {
 			blip.z = -5000.f;
 
 			if (blip.x != 64000.000 && blip.y != 64000.000) {
-				this->m_writeMemory<DWORD64, Vector3>(m_hProcess, reinterpret_cast<DWORD64>(&pNavigation->m_vecCoords), blip);
+				this->m_writeMemory<DWORD64, CVector3>(m_hProcess, reinterpret_cast<DWORD64>(&pNavigation->m_vecCoords), blip);
 			}
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));
