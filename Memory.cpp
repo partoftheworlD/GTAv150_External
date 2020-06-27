@@ -235,11 +235,11 @@ void CMemory::m_money() {
 }
 
 void CMemory::m_orbitalMoney() {
-	const auto activator = this->m_getHiddenStruct(0x171A3D);
+	const auto activator = this->m_readMemory(m_hProcess, GLOBAL_STRUCT + 0x30);	
 	while (TRUE) {
 		if (m_inputs[EORBIT] & 0x1) {
 			for (auto i = 1; i <= 2; i++) {
-				this->m_writeMemory<DWORD64, int>(this->m_hProcess, activator, i);
+				this->m_writeMemory<DWORD64, int>(this->m_hProcess, activator + (0xed1 << 8) + 0xe8, i);
 				std::this_thread::sleep_for(std::chrono::seconds(5));
 			}
 			std::this_thread::sleep_for(std::chrono::seconds(15));
